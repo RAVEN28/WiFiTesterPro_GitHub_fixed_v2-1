@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build APK - Full Debug
 
 on:
   workflow_dispatch:
@@ -6,56 +6,105 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build-android:
+  build:
     runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
+      - name: Show project structure
+        run: |
+          echo "=== Files in repo ==="
+          ls -la
+          echo ""
+          echo "=== buildozer.spec exists? ==="
+          test -f buildozer.spec && echo "YES" || echo "NO"
+          echo ""
+          echo "=== main.py exists? ==="
+          test -f main.py && echo "YES" || echo "NO"
+          echo ""
+          echo "=== buildozer.spec content ==="
+          cat buildozer.spec
+          echo ""
+          echo "=== main.py size ==="
+          wc -l main.py
+
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install Android/Build dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             git zip unzip openjdk-17-jdk \
             autoconf automake autopoint libtool libltdl-dev \
             pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev \
-            libtinfo6 cmake libffi-dev libssl-dev gettext \
-            build-essential ccache
+            libtinfo5 cmake libffi-dev libssl-dev gettext \
+            build-essential ccache || true
 
-      - name: Install Buildozer dependencies
+          # Fallback for libtinfo5 on Ubuntu 22.04
+          if ! dpkg -l | grep -q libtinfo5; then
+            wget http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2_amd64.deb || true
+            sudo dpkg -i libtinfo5_6.3-2_amd64.deb || sudo apt-get install -f -y || true
+          fi
+
+      - name: Install Buildozer
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install buildozer==1.5.0 "cython<3.0"
+          pip install --upgrade pip setuptools wheel
+          pip install "buildozer==1.5.0" "cython<3.0"
 
-      - name: Show buildozer.spec (debug)
+      - name: Verify environment
         run: |
-          echo "=== buildozer.spec ==="
-          cat buildozer.spec
-          echo "=== main.py size ==="
-          ls -lh main.py
+          echo "=== Python ==="
+          python --version
+          echo "=== Java ==="
+          java -version
+          echo "=== Buildozer ==="
+          buildozer --version
 
-      - name: Build APK with Buildozer
+      - name: Clean previous builds
         run: |
-          export PATH=$PATH:$HOME/.local/bin
-          buildozer -v android debug 2>&1 | tee build.log
+          rm -rf .buildozer bin || true
 
-      - name: Upload Build Log
+      - name: Build APK (with full log)
+        run: |
+          set -x
+          buildozer -v android debug 2>&1 | tee build_full.log
+          echo "=== EXIT CODE: $? ==="
+          echo ""
+          echo "=== bin/ directory: ==="
+          ls -la bin/ || echo "NO bin DIRECTORY"
+        continue-on-error: true
+
+      - name: Check what was built
+        if: always()
+        run: |
+          echo "=== Searching for APK anywhere ==="
+          find . -name "*.apk" -type f 2>/dev/null || echo "No APK found"
+          echo ""
+          echo "=== Search buildozer output ==="
+          find /home/runner -name "*.apk" -type f 2>/dev/null || echo "Nothing in /home/runner"
+          echo ""
+          echo "=== bin/ ==="
+          ls -la bin/ 2>/dev/null || echo "No bin/"
+
+      - name: Upload full log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: build.log
+          name: build-full-log
+          path: build_full.log
           if-no-files-found: warn
 
-      - name: Upload APK
+      - name: Upload APK if exists
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: WiFiTesterPro-debug-apk
-          path: bin/*.apk
-          if-no-files-found: error
+          name: apk
+          path: |
+            bin/*.apk
+            **/*.apk
+          if-no-files-found: warn
