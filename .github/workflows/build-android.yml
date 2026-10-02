@@ -33,6 +33,10 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install buildozer==1.5.0 cython==0.29.34
 
+      - name: Pin compatible python-for-android checkout
+        run: |
+          sed -i '/^android.ndk =/a p4a.commit = 957a3e5' buildozer.spec
+
       - name: Build APK with Buildozer
         run: |
           buildozer -v android debug
