@@ -26,20 +26,32 @@ jobs:
             autoconf automake autopoint libtool libltdl-dev \
             pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev \
             libtinfo6 cmake libffi-dev libssl-dev gettext \
-            build-essential
+            build-essential ccache
 
       - name: Install Buildozer dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install buildozer==1.5.0 cython==0.29.34
+          python -m pip install buildozer==1.5.0 "cython<3.0"
 
-      - name: Pin compatible python-for-android checkout
+      - name: Show buildozer.spec (debug)
         run: |
-          sed -i '/^android.ndk =/a p4a.commit = 957a3e5' buildozer.spec
+          echo "=== buildozer.spec ==="
+          cat buildozer.spec
+          echo "=== main.py size ==="
+          ls -lh main.py
 
       - name: Build APK with Buildozer
         run: |
-          buildozer -v android debug
+          export PATH=$PATH:$HOME/.local/bin
+          buildozer -v android debug 2>&1 | tee build.log
+
+      - name: Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: warn
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
