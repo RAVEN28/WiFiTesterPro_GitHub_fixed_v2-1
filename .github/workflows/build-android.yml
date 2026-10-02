@@ -1,110 +1,80 @@
-name: Build APK - Full Debug
+name: Build Android APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+      - '**'
 
 jobs:
   build:
+    name: Build APK with Buildozer
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Show project structure
-        run: |
-          echo "=== Files in repo ==="
-          ls -la
-          echo ""
-          echo "=== buildozer.spec exists? ==="
-          test -f buildozer.spec && echo "YES" || echo "NO"
-          echo ""
-          echo "=== main.py exists? ==="
-          test -f main.py && echo "YES" || echo "NO"
-          echo ""
-          echo "=== buildozer.spec content ==="
-          cat buildozer.spec
-          echo ""
-          echo "=== main.py size ==="
-          wc -l main.py
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Set up Python
+      - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: '3.10'
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            git zip unzip openjdk-17-jdk \
+          sudo apt-get install -y --no-install-recommends \
+            git zip unzip \
             autoconf automake autopoint libtool libltdl-dev \
             pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev \
-            libtinfo5 cmake libffi-dev libssl-dev gettext \
-            build-essential ccache || true
+            cmake libffi-dev libssl-dev gettext \
+            build-essential ccache
 
-          # Fallback for libtinfo5 on Ubuntu 22.04
-          if ! dpkg -l | grep -q libtinfo5; then
-            wget http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2_amd64.deb || true
-            sudo dpkg -i libtinfo5_6.3-2_amd64.deb || sudo apt-get install -f -y || true
-          fi
-
-      - name: Install Buildozer
+      - name: Install Buildozer and Cython
         run: |
-          pip install --upgrade pip setuptools wheel
-          pip install "buildozer==1.5.0" "cython<3.0"
+          python -m pip install --upgrade pip setuptools wheel
+          pip install "buildozer==1.5.0" "cython==0.29.36" virtualenv
 
-      - name: Verify environment
+      - name: Cache Buildozer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer
+          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            buildozer-${{ runner.os }}-
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle
+          key: gradle-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Build APK with Buildozer
         run: |
-          echo "=== Python ==="
-          python --version
-          echo "=== Java ==="
-          java -version
-          echo "=== Buildozer ==="
-          buildozer --version
+          buildozer -v android debug
 
-      - name: Clean previous builds
-        run: |
-          rm -rf .buildozer bin || true
-
-      - name: Build APK (with full log)
-        run: |
-          set -x
-          buildozer -v android debug 2>&1 | tee build_full.log
-          echo "=== EXIT CODE: $? ==="
-          echo ""
-          echo "=== bin/ directory: ==="
-          ls -la bin/ || echo "NO bin DIRECTORY"
-        continue-on-error: true
-
-      - name: Check what was built
-        if: always()
-        run: |
-          echo "=== Searching for APK anywhere ==="
-          find . -name "*.apk" -type f 2>/dev/null || echo "No APK found"
-          echo ""
-          echo "=== Search buildozer output ==="
-          find /home/runner -name "*.apk" -type f 2>/dev/null || echo "Nothing in /home/runner"
-          echo ""
-          echo "=== bin/ ==="
-          ls -la bin/ 2>/dev/null || echo "No bin/"
-
-      - name: Upload full log
-        if: always()
+      - name: Upload APK Artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: build-full-log
-          path: build_full.log
-          if-no-files-found: warn
+          name: WifiTesterPro-Debug-APK
+          path: bin/*.apk
+          if-no-files-found: error
 
-      - name: Upload APK if exists
-        if: always()
+      - name: Upload Build Log on Failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: apk
+          name: build-failure-log
           path: |
-            bin/*.apk
-            **/*.apk
-          if-no-files-found: warn
+            .buildozer/android/platform/build-*/build.log
+          if-no-files-found: ignore
